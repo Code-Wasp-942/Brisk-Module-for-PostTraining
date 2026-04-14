@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,12 @@ ANSWER_KEYS = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare VerifyBench for SFT")
     parser.add_argument("--input", default="data/raw/verify_bench.jsonl")
-    parser.add_argument("--output", default="data/processed/train.jsonl")
+    parser.add_argument("--train-output", default="data/processed/train.jsonl")
+    parser.add_argument("--val-output", default="data/processed/val.jsonl")
     parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--max-seq-len", type=int, default=4096)
+    parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
 
@@ -65,6 +69,30 @@ def _build_prompt(question: str) -> str:
     )
 
 
+def _split_samples(samples: list[dict[str, Any]], val_ratio: float, seed: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if val_ratio <= 0:
+        return samples, []
+
+    items = list(samples)
+    random.Random(seed).shuffle(items)
+    val_count = int(len(items) * val_ratio)
+    if val_count <= 0 and len(items) > 0:
+        val_count = 1
+
+    val_samples = items[:val_count]
+    train_samples = items[val_count:]
+    if not train_samples and val_samples:
+        train_samples = [val_samples.pop()]
+    return train_samples, val_samples
+
+
+def _write_jsonl(path: Path, samples: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for sample in samples:
+            handle.write(json.dumps(sample, ensure_ascii=False) + "\n")
+
+
 def main() -> None:
     args = parse_args()
 
@@ -74,8 +102,11 @@ def main() -> None:
         raise ImportError("Please install `transformers` for SFT preprocessing") from exc
 
     input_path = Path(args.input)
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    train_output_path = Path(args.train_output)
+    val_output_path = Path(args.val_output)
+
+    if args.val_ratio < 0 or args.val_ratio >= 1:
+        raise ValueError("`--val-ratio` must be in [0, 1)")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -83,7 +114,8 @@ def main() -> None:
 
     total = 0
     kept = 0
-    with input_path.open("r", encoding="utf-8") as src, output_path.open("w", encoding="utf-8") as dst:
+    samples: list[dict[str, Any]] = []
+    with input_path.open("r", encoding="utf-8") as src:
         for line in src:
             row = line.strip()
             if not row:
@@ -125,11 +157,21 @@ def main() -> None:
                 "attention_mask": attention_mask.tolist(),
                 "labels": labels.tolist(),
             }
-            dst.write(json.dumps(sample, ensure_ascii=False) + "\n")
+            samples.append(sample)
             kept += 1
 
+    train_samples, val_samples = _split_samples(
+        samples=samples,
+        val_ratio=float(args.val_ratio),
+        seed=int(args.seed),
+    )
+
+    _write_jsonl(train_output_path, train_samples)
+    _write_jsonl(val_output_path, val_samples)
+
     print(f"input={input_path.resolve()} total={total} kept={kept}")
-    print(f"output={output_path.resolve()}")
+    print(f"train_output={train_output_path.resolve()} size={len(train_samples)}")
+    print(f"val_output={val_output_path.resolve()} size={len(val_samples)}")
 
 
 if __name__ == "__main__":
