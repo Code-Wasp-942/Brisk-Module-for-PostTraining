@@ -101,7 +101,7 @@ train:
 
 - 支持在 `config.prompting.composers` 下注册多个 composer。
 - 主程序启动时会预 tokenize prompts，并注入 `input["composers"]` 给 `step`。
-- 默认 `tokenizer_source` 绑定 `models.policy.path`。
+- tokenizer_source 优先级：局部(data/prompting) > 顶层 > 默认 models.policy.path
 - `compose` 返回 `input_ids/attention_mask/lengths`；监督训练所需 `labels` 需在 `step` 内自行构造。
 
 ### Metrics 日志输出（可选）
