@@ -89,6 +89,7 @@ train:
   load_ckpt_mode: full           # full | weights_only
   load_ckpt_strict: true         # 传给 model.load_state_dict(strict=...)
   log_every_steps: 10
+  train_target_model: null       # 可选；指定当前训练的模型名称
 ```
 
 - `control_mode` 控制训练截断方式：
@@ -99,11 +100,15 @@ train:
 - checkpoint 文件统一为 `.pt`：间隔保存 `step_<global_step>[.rank_<rank>].pt`，结束保存 `latest[.rank_<rank>].pt`。
 - `load_ckpt_mode=full`：恢复 model + optimizer + scheduler + step，并用 checkpoint 内 `resume_config` 覆盖相关配置。
 - `load_ckpt_mode=weights_only`：仅恢复 model；其余配置仅打印差异不覆盖。
-- 多卡恢复时，若 `load_ckpt_path` 指向的基础文件（如 `step_2000.pt`）不存在，会自动尝试同目录下的 `step_2000.rank_<rank>.pt`。
+- 多卡恢复时，若 `load_ckpt_path` 指向的基础文件（如 `step_2000.pt`）不存在，会自动尝试同目录下的 `step_2000.rank_<rank>].pt`。
 - `load_ckpt_strict`：传给 `model.load_state_dict(strict=...)`。
   - `true`（默认）：checkpoint 与当前模型参数名/shape 需严格匹配，缺键/多键/shape 不一致会直接报错并终止。
   - `false`：允许非严格匹配（常用于只加载部分权重或结构轻微变动时），但不匹配参数不会被恢复。
 - `full` 覆盖键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.training_backend`。
+- `train_target_model`：指定当前训练的模型名称。
+  - 未配置时，PyTorch backend 训练所有 `trainable=true` 的模型；DeepSpeed backend 默认训练 `policy`。
+  - 配置后，只训练指定模型（其他模型移到设备用于推理）。
+  - 常用于交替训练场景：先训练 `model_a`，再训练 `model_b`。
 
 ## `rlaif`（可选）
 

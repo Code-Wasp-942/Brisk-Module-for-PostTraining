@@ -31,6 +31,7 @@ train:
   load_ckpt_mode: full
   load_ckpt_strict: true
   log_every_steps: 10
+  train_target_model: null   # 可选：指定当前训练的模型名称，未配置时默认policy
 
 runtime:
   backend: accelerate
